@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Draw.io XML Inject Demo",
+  "version": "0.1.0",
+  "description": "Minimum runnable demo: inject XML into embed.diagrams.net and receive save events.",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "Draw.io XML Demo",
+    "default_popup": "popup.html"
+  },
+  "host_permissions": [
+    "https://embed.diagrams.net/*",
+    "https://app.diagrams.net/*"
+  ]
+}

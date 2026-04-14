@@ -1,0 +1,415 @@
+:root {
+  --da-text-main: #333333;
+  --da-text-sub: #666666;
+  --da-text-soft: #888888;
+
+  --da-border-main: #e0e0e0;
+  --da-border-soft: #ebebeb;
+  --da-border-input: #cccccc;
+  --da-border-strong: #b3b3b3;
+
+  --da-panel-bg: #f2f2f2;
+  --da-head-bg: #f4f4f4;
+  --da-surface: #ffffff;
+  --da-surface-soft: #fafafa;
+
+  --da-primary-1: #f2931e;
+  --da-primary-2: #e07b10;
+  --da-primary-text: #ffffff;
+
+  --da-user-msg-border: #d79b00;
+  --da-user-msg-bg: #ffe6cc;
+
+  --da-empty-bg: #ffffff;
+  --da-empty-border: #e0e0e0;
+  --da-meta-text: #999999;
+
+  --da-secondary-btn-border: #cccccc;
+  --da-secondary-btn-bg: #f5f5f5;
+  --da-secondary-btn-hover: #e5e5e5;
+  --da-secondary-btn-text: #333333;
+
+  --da-success-border: #16a34a;
+  --da-success-bg: #ecfdf3;
+  --da-success-text: #166534;
+  --da-error-border: #dc2626;
+  --da-error-bg: #fef2f2;
+  --da-error-text: #991b1b;
+  --da-pending-border: #f59e0b;
+  --da-pending-bg: #fff7ed;
+  --da-pending-text: #9a3412;
+}
+
+#drawio-ai-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 430px;
+  height: 100vh;
+  z-index: 2147483000;
+  display: none;
+  flex-direction: column;
+  border-left: 1px solid var(--da-border-main);
+  background: var(--da-panel-bg);
+  font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+  color: var(--da-text-main);
+  box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+}
+
+#drawio-ai-sidebar.open {
+  display: flex;
+}
+
+.drawio-ai-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--da-border-soft);
+  background: var(--da-head-bg);
+}
+
+.drawio-ai-brand {
+  min-width: 0;
+}
+
+.drawio-ai-title {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.2px;
+}
+
+.drawio-ai-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--da-text-sub);
+}
+
+.drawio-ai-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawio-ai-model-pill {
+  width: 116px;
+  border: 1px solid var(--da-border-input);
+  border-radius: 12px;
+  font-size: 11px;
+  padding: 6px 8px;
+  color: var(--da-text-main);
+  background: var(--da-surface);
+}
+
+.drawio-ai-icon-btn {
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  color: var(--da-secondary-btn-text);
+  background: var(--da-surface);
+  cursor: pointer;
+}
+.drawio-ai-icon-btn:hover {
+  background: var(--da-border-soft);
+  border-color: var(--da-border-main);
+  color: var(--da-text-main);
+}
+
+.drawio-ai-chat-list {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drawio-ai-empty {
+  border: 1px dashed var(--da-empty-border);
+  border-radius: 4px;
+  padding: 14px;
+  font-size: 12px;
+  color: var(--da-text-sub);
+  background: var(--da-empty-bg);
+}
+
+.drawio-ai-msg {
+  border-radius: 4px;
+  padding: 10px;
+  border: 1px solid var(--da-border-input);
+  background: var(--da-surface);
+}
+
+.drawio-ai-msg.user {
+  margin-left: 26px;
+  border-color: var(--da-user-msg-border);
+  background: var(--da-user-msg-bg);
+}
+
+.drawio-ai-msg.assistant {
+  margin-right: 26px;
+}
+
+.drawio-ai-msg-meta {
+  font-size: 11px;
+  color: var(--da-meta-text);
+  margin-bottom: 6px;
+}
+
+.drawio-ai-msg-body {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.drawio-ai-context-strip {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.drawio-ai-upload-chip {
+  border: 1px solid var(--da-border-input);
+  border-radius: 12px;
+  font-size: 11px;
+  padding: 7px 10px;
+  background: var(--da-surface);
+  color: var(--da-secondary-btn-text);
+  cursor: pointer;
+}
+
+.drawio-ai-preview-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.drawio-ai-preview {
+  width: calc(50% - 4px);
+  max-height: 88px;
+  object-fit: cover;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  background: var(--da-surface);
+}
+
+.drawio-ai-composer {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--da-border-soft);
+  background: var(--da-surface-soft);
+}
+
+.drawio-ai-prompt {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--da-surface);
+}
+
+.drawio-ai-composer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.drawio-ai-btn {
+  border: 1px solid var(--da-primary-1);
+  border-radius: 4px;
+  background-color: var(--da-primary-1);
+  color: var(--da-primary-text);
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.drawio-ai-btn.secondary {
+  border-color: var(--da-secondary-btn-border);
+  background: var(--da-secondary-btn-bg);
+  color: var(--da-secondary-btn-text);
+}
+.drawio-ai-btn.secondary:hover {
+  background: var(--da-secondary-btn-hover);
+}
+
+.drawio-ai-btn.secondary.is-pending {
+  border-color: var(--da-pending-border);
+  background: var(--da-pending-bg);
+  color: var(--da-pending-text);
+}
+
+.drawio-ai-btn.secondary.is-success {
+  border-color: var(--da-success-border);
+  background: var(--da-success-bg);
+  color: var(--da-success-text);
+}
+
+.drawio-ai-btn.secondary.is-error {
+  border-color: var(--da-error-border);
+  background: var(--da-error-bg);
+  color: var(--da-error-text);
+}
+
+.drawio-ai-xml-panel {
+  margin: 0 12px 8px;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  background: var(--da-surface);
+  padding: 8px;
+}
+
+.drawio-ai-xml-panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--da-secondary-btn-text);
+}
+
+.drawio-ai-output,
+.drawio-ai-input {
+  width: 100%;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--da-text-main);
+  background: var(--da-surface);
+}
+
+#drawio-ai-profile-select {
+  flex: 1;
+  min-width: 180px;
+}
+
+.drawio-ai-test-result {
+  margin-top: 8px;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.drawio-ai-test-result.pending {
+  border-color: var(--da-pending-border);
+  background: var(--da-pending-bg);
+  color: var(--da-pending-text);
+}
+
+.drawio-ai-test-result.success {
+  border-color: var(--da-success-border);
+  background: var(--da-success-bg);
+  color: var(--da-success-text);
+}
+
+.drawio-ai-test-result.error {
+  border-color: var(--da-error-border);
+  background: var(--da-error-bg);
+  color: var(--da-error-text);
+}
+
+.drawio-ai-output {
+  margin-top: 8px;
+  min-height: 160px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.drawio-ai-label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--da-secondary-btn-text);
+}
+
+.drawio-ai-status {
+  margin: 0 12px 12px;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  background: var(--da-surface);
+  padding: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+#drawio-ai-settings-modal,
+#drawio-ai-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.58);
+}
+
+#drawio-ai-settings-modal.open,
+#drawio-ai-editor-modal.open {
+  display: flex;
+}
+
+.drawio-ai-settings-panel {
+  width: min(92vw, 520px);
+  max-height: 88vh;
+  overflow: auto;
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  background: var(--da-surface);
+  padding: 14px;
+}
+
+.drawio-ai-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawio-ai-settings-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.drawio-ai-editor-panel {
+  width: min(94vw, 1180px);
+  height: min(88vh, 820px);
+  border: 1px solid var(--da-border-input);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff8f1;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawio-ai-editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--da-border-input);
+  background: var(--da-surface);
+  font-size: 12px;
+}
+
+#drawio-ai-editor-canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  background: #f6e8db;
+  padding: 12px;
+}
+
+#drawio-ai-editor-canvas {
+  display: block;
+  background: var(--da-surface);
+  border: 1px solid var(--da-border-strong);
+  max-width: none;
+}

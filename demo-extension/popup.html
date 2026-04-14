@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Draw.io XML Demo</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Draw.io XML 注入 Demo</h1>
+    <p>流程A：后台注入当前 app.diagrams.net 标签页（不弹对话框）。流程B：内嵌编辑器 load(xml) 验证。</p>
+  </header>
+
+  <section class="controls">
+    <label for="xmlInput">XML 输入</label>
+    <textarea id="xmlInput" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button id="injectTabBtn" type="button">注入当前标签页</button>
+      <button id="loadBtn" type="button">注入 XML (load)</button>
+      <button id="templateBtn" type="button">恢复示例 XML</button>
+    </div>
+  </section>
+
+  <section class="editor-wrap">
+    <iframe
+      id="editorFrame"
+      title="Draw.io Editor"
+      src="https://embed.diagrams.net/?embed=1&proto=json&spin=1&libraries=1&ui=min"
+      allow="clipboard-read; clipboard-write"
+    ></iframe>
+  </section>
+
+  <section class="result">
+    <label for="resultXml">回传 XML (save/autosave)</label>
+    <textarea id="resultXml" spellcheck="false" readonly></textarea>
+  </section>
+
+  <section class="status" id="status"></section>
+
+  <script src="popup.js"></script>
+</body>
+</html>
