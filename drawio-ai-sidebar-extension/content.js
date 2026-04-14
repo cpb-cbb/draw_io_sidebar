@@ -2,6 +2,7 @@
   const SIDEBAR_ID = "drawio-ai-sidebar";
   const CONFIG_KEY = "drawioAiConfigV2";
   const HISTORY_KEY = "drawioAiHistory";
+  const MODEL_REF_SEP = "::";
   const UI_LANGUAGE_OPTIONS = ["auto", "zh", "en"];
 
   function resolveLocale(uiLanguage) {
@@ -12,10 +13,10 @@
   }
 
   function normalizeUiLanguage(value) {
-    return UI_LANGUAGE_OPTIONS.includes(value) ? value : "auto";
+    return UI_LANGUAGE_OPTIONS.includes(value) ? value : "en";
   }
 
-  let locale = resolveLocale("auto");
+  let locale = resolveLocale("en");
   const i18n = {
     zh: {
       title: "AI Diagram Copilot",
@@ -183,8 +184,10 @@
   const defaultConfig = {
     profiles: [createProfile({ id: "default", name: "Default" })],
     activeProfileId: "default",
-    uiLanguage: "auto",
+    uiLanguage: "en",
+    modelRef: "",
     model: "gpt-4o-mini",
+    testedModelsByProfile: {},
     temperature: 0.2,
     maxTokens: 4096
   };
@@ -265,16 +268,75 @@
 
     const modelFromCfg = String(cfg.model || "").trim();
     const model = modelFromCfg || profiles[0].modelList[0] || "gpt-4o-mini";
-    const uiLanguage = normalizeUiLanguage(String(cfg.uiLanguage || "auto").trim());
+    const modelRefFromCfg = String(cfg.modelRef || "").trim();
+
+    const testedModelsByProfileRaw = cfg.testedModelsByProfile && typeof cfg.testedModelsByProfile === "object"
+      ? cfg.testedModelsByProfile
+      : {};
+    const testedModelsByProfile = {};
+    profiles.forEach((p) => {
+      const tested = Array.isArray(testedModelsByProfileRaw[p.id])
+        ? testedModelsByProfileRaw[p.id].map((m) => String(m || "").trim()).filter(Boolean)
+        : [];
+      const allowed = new Set((p.modelList || []).map((m) => String(m || "").trim()).filter(Boolean));
+      const filtered = tested.filter((m) => allowed.has(m));
+      if (filtered.length) {
+        testedModelsByProfile[p.id] = Array.from(new Set(filtered));
+      }
+    });
+
+    const fallbackRef = `${activeProfileId}${MODEL_REF_SEP}${model}`;
+    const modelRef = modelRefFromCfg || fallbackRef;
+    const uiLanguage = normalizeUiLanguage(String(cfg.uiLanguage || "en").trim());
 
     return {
       profiles,
       activeProfileId,
       uiLanguage,
+      modelRef,
       model,
+      testedModelsByProfile,
       temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : defaultConfig.temperature,
       maxTokens: Number.isFinite(Number(cfg.maxTokens)) ? Number(cfg.maxTokens) : defaultConfig.maxTokens
     };
+  }
+
+  function buildModelRef(profileId, model) {
+    return `${String(profileId || "").trim()}${MODEL_REF_SEP}${String(model || "").trim()}`;
+  }
+
+  function parseModelRef(ref) {
+    const raw = String(ref || "");
+    const idx = raw.indexOf(MODEL_REF_SEP);
+    if (idx < 0) {
+      return { profileId: "", model: raw.trim() };
+    }
+    return {
+      profileId: raw.slice(0, idx).trim(),
+      model: raw.slice(idx + MODEL_REF_SEP.length).trim()
+    };
+  }
+
+  function pruneTestedModelsByProfiles() {
+    const profileMap = new Map((state.config.profiles || []).map((p) => [p.id, p]));
+    const cleaned = {};
+    const raw = state.config.testedModelsByProfile || {};
+
+    Object.keys(raw).forEach((profileId) => {
+      const profile = profileMap.get(profileId);
+      if (!profile) return;
+
+      const allowed = new Set((profile.modelList || []).map((m) => String(m || "").trim()).filter(Boolean));
+      const tested = Array.isArray(raw[profileId])
+        ? raw[profileId].map((m) => String(m || "").trim()).filter((m) => allowed.has(m))
+        : [];
+
+      if (tested.length) {
+        cleaned[profileId] = Array.from(new Set(tested));
+      }
+    });
+
+    state.config.testedModelsByProfile = cleaned;
   }
 
   function updateProfileFields(profile) {
@@ -372,9 +434,16 @@
   async function saveConfig() {
     const oldLocale = locale;
     syncActiveProfileFromModal();
-    state.config.uiLanguage = normalizeUiLanguage(String(getInput("drawio-ai-ui-language")?.value || "auto").trim());
+    pruneTestedModelsByProfiles();
+    state.config.uiLanguage = normalizeUiLanguage(String(getInput("drawio-ai-ui-language")?.value || "en").trim());
     locale = resolveLocale(state.config.uiLanguage);
-    state.config.model = (getInput("drawio-ai-model-select").value || "").trim() || "gpt-4o-mini";
+    const selectedRef = (getInput("drawio-ai-model-select").value || "").trim();
+    const parsed = parseModelRef(selectedRef);
+    state.config.modelRef = selectedRef || state.config.modelRef || "";
+    state.config.model = parsed.model || state.config.model || "gpt-4o-mini";
+    if (parsed.profileId && state.config.profiles.some((p) => p.id === parsed.profileId)) {
+      state.config.activeProfileId = parsed.profileId;
+    }
     state.config.temperature = Number(getInput("drawio-ai-temperature").value || 0.2);
     state.config.maxTokens = Number(getInput("drawio-ai-max-tokens").value || 4096);
 
@@ -410,18 +479,46 @@
 
   function renderModelOptions() {
     const select = getInput("drawio-ai-model-select");
-    const active = getActiveProfile();
-    const current = state.config.model || "gpt-4o-mini";
+    if (!select) return;
 
-    const profileModels = Array.isArray(active?.modelList) ? active.modelList : [];
-    const models = Array.from(new Set([...profileModels, current])).filter(Boolean);
-    const safeModels = models.length ? models : ["gpt-4o-mini"];
+    const options = [];
+    (state.config.profiles || []).forEach((profile) => {
+      const testedModels = Array.isArray(state.config.testedModelsByProfile?.[profile.id])
+        ? state.config.testedModelsByProfile[profile.id]
+        : [];
+      testedModels.forEach((model) => {
+        const ref = buildModelRef(profile.id, model);
+        options.push({
+          ref,
+          profileId: profile.id,
+          model,
+          label: `${profile.name || "Unnamed"}/${model}`
+        });
+      });
+    });
 
-    select.innerHTML = safeModels
-      .map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`)
+    if (!options.length) {
+      const text = locale === "zh" ? "请先在设置中测试连接" : "Please test a profile first";
+      select.innerHTML = `<option value="">${escapeHtml(text)}</option>`;
+      select.value = "";
+      state.config.modelRef = "";
+      return;
+    }
+
+    const currentRef = String(state.config.modelRef || "").trim();
+    const safeRef = options.some((o) => o.ref === currentRef) ? currentRef : options[0].ref;
+
+    select.innerHTML = options
+      .map((o) => `<option value="${escapeHtml(o.ref)}">${escapeHtml(o.label)}</option>`)
       .join("");
-    select.value = safeModels.includes(current) ? current : safeModels[0];
-    state.config.model = select.value;
+    select.value = safeRef;
+
+    const parsed = parseModelRef(safeRef);
+    state.config.modelRef = safeRef;
+    state.config.model = parsed.model || state.config.model || "gpt-4o-mini";
+    if (parsed.profileId && state.config.profiles.some((p) => p.id === parsed.profileId)) {
+      state.config.activeProfileId = parsed.profileId;
+    }
   }
 
   async function saveHistory() {
@@ -517,13 +614,25 @@
       return;
     }
 
-    state.config.model = (getInput("drawio-ai-model-select").value || "").trim() || "gpt-4o-mini";
-    const activeProfile = getActiveProfile();
+    const selectedRef = (getInput("drawio-ai-model-select").value || "").trim();
+    if (!selectedRef) {
+      setStatus(locale === "zh" ? "请先测试配置后再生成" : "Test a profile before generating", true);
+      return;
+    }
+    const selected = parseModelRef(selectedRef);
+    const selectedProfile = (state.config.profiles || []).find((p) => p.id === selected.profileId) || getActiveProfile();
+    const selectedModel = selected.model || state.config.model || "gpt-4o-mini";
+
+    state.config.modelRef = buildModelRef(selectedProfile?.id || "", selectedModel);
+    state.config.model = selectedModel;
+    if (selectedProfile?.id) {
+      state.config.activeProfileId = selectedProfile.id;
+    }
 
     const cfg = {
-      baseUrl: (activeProfile?.baseUrl || "").trim(),
-      apiKey: (activeProfile?.apiKey || "").trim(),
-      model: (getInput("drawio-ai-model-select").value || "").trim(),
+      baseUrl: (selectedProfile?.baseUrl || "").trim(),
+      apiKey: (selectedProfile?.apiKey || "").trim(),
+      model: selectedModel,
       temperature: Number(getInput("drawio-ai-temperature").value || 0.2),
       maxTokens: Number(getInput("drawio-ai-max-tokens").value || 4096)
     };
@@ -1005,8 +1114,26 @@
       if (!selected) return;
       state.config.activeProfileId = selected.id;
       updateProfileFields(selected);
-      renderModelOptions();
       renderApiTestResult("neutral", "");
+    });
+
+    getInput("drawio-ai-model-select").addEventListener("change", (e) => {
+      const parsed = parseModelRef(e.target.value || "");
+      state.config.modelRef = e.target.value || "";
+      if (parsed.model) {
+        state.config.model = parsed.model;
+      }
+      if (parsed.profileId) {
+        const profile = (state.config.profiles || []).find((p) => p.id === parsed.profileId);
+        if (profile) {
+          state.config.activeProfileId = profile.id;
+          updateProfileFields(profile);
+          const profileSelect = getInput("drawio-ai-profile-select");
+          if (profileSelect) {
+            profileSelect.value = profile.id;
+          }
+        }
+      }
     });
 
     getInput("drawio-ai-profile-new").addEventListener("click", () => {
@@ -1025,6 +1152,9 @@
       }
       const active = getActiveProfile();
       state.config.profiles = state.config.profiles.filter((p) => p.id !== active.id);
+      if (state.config.testedModelsByProfile && active?.id) {
+        delete state.config.testedModelsByProfile[active.id];
+      }
       state.config.activeProfileId = state.config.profiles[0].id;
       renderProfileOptions();
       renderModelOptions();
@@ -1034,19 +1164,48 @@
     getInput("drawio-ai-profile-test").addEventListener("click", async () => {
       try {
         const profile = syncActiveProfileFromModal();
+        const candidates = Array.from(new Set((profile.modelList || []).map((m) => String(m || "").trim()).filter(Boolean)));
+        if (!candidates.length) {
+          throw new Error("Model list is empty");
+        }
+
         renderApiTestResult("pending", t("testRunning"));
         setStatus(t("testRunning"), false);
-        const testResp = await sendMessage({
-          type: "TEST_API",
-          payload: {
-            baseUrl: profile.baseUrl,
-            apiKey: profile.apiKey,
-            model: state.config.model || "gpt-4o-mini"
+
+        const passed = [];
+        let lastErr = "";
+        for (const model of candidates) {
+          const testResp = await sendMessage({
+            type: "TEST_API",
+            payload: {
+              baseUrl: profile.baseUrl,
+              apiKey: profile.apiKey,
+              model
+            }
+          });
+          if (testResp.ok) {
+            passed.push(model);
+          } else {
+            lastErr = testResp.error || "Unknown error";
           }
-        });
-        if (!testResp.ok) {
-          throw new Error(testResp.error || "Unknown error");
         }
+
+        if (!passed.length) {
+          throw new Error(lastErr || "No model passed connectivity test");
+        }
+
+        state.config.testedModelsByProfile = state.config.testedModelsByProfile || {};
+        state.config.testedModelsByProfile[profile.id] = passed;
+
+        const activeFromSelect = (getInput("drawio-ai-model-select").value || "").trim();
+        const activeParsed = parseModelRef(activeFromSelect);
+        if (activeParsed.profileId !== profile.id || !passed.includes(activeParsed.model)) {
+          state.config.modelRef = buildModelRef(profile.id, passed[0]);
+          state.config.model = passed[0];
+        }
+
+        await chrome.storage.local.set({ [CONFIG_KEY]: state.config });
+        renderModelOptions();
         renderApiTestResult("success", t("testOk"));
         setStatus(t("testOk"), false);
       } catch (e) {
