@@ -15,7 +15,6 @@
 - 支持画布区域截图、涂鸦、拖拽文字标注后再发送
 - 生成中会在对话区显示等待动画（spinner）
 - 生成完成后显示 token 消耗（优先展示 `total_tokens`）
-- 支持生成策略：`Auto`（优先搜索替换，失败回退全量）/`Patch`/`Full`
 - 基于当前画布 XML + 自然语言生成新 XML
 - 支持“一键生成并注入”到 draw.io 画布
 - 记录最近 50 个 XML 版本，支持“上一步/下一步”并自动注入
@@ -43,9 +42,8 @@
 2. 填写 `baseLLMUrl`、`apiKey`、`modelList`（每行一个模型）
 3. 点击 Test，只有测试通过的模型会进入顶部下拉
 4. 在顶部选择 `Profile/model`
-5. 在设置里选择生成策略（推荐 `Auto`）
-6. 输入需求，点击 Generate only 或 Generate and inject
-7. 在 XML 面板可用“上一步/下一步”切换历史版本并自动注入
+5. 输入需求，点击 Generate only 或 Generate and inject
+6. 在 XML 面板可用“上一步/下一步”切换历史版本并自动注入
 
 ### 项目结构
 
@@ -77,7 +75,6 @@
 - Supports canvas-region screenshot, drawing, and draggable text annotation
 - Shows a spinner bubble while generation is running
 - Shows token usage after completion (prefers `total_tokens`)
-- Supports generation modes: `Auto` (prefer patch, fallback full) / `Patch` / `Full`
 - Generates draw.io XML from current canvas XML + natural language prompt
 - One-click generate and inject to draw.io canvas
 - Keeps the latest 50 XML versions, with Previous/Next auto-inject navigation
@@ -105,9 +102,8 @@
 2. Fill in `baseLLMUrl`, `apiKey`, and `modelList` (one model per line)
 3. Click Test; only passed models appear in the top selector
 4. Choose `Profile/model` from the top dropdown
-5. Choose generation mode in Settings (recommended: `Auto`)
-6. Enter your prompt, then click Generate only or Generate and inject
-7. Use Previous/Next in the XML panel to move across saved XML versions with auto-inject
+5. Enter your prompt, then click Generate only or Generate and inject
+6. Use Previous/Next in the XML panel to move across saved XML versions with auto-inject
 
 ### Project Structure
 

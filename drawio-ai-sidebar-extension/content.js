@@ -6,7 +6,6 @@
   const MAX_XML_VERSION_COUNT = 50;
   const MODEL_REF_SEP = "::";
   const UI_LANGUAGE_OPTIONS = ["auto", "zh", "en"];
-  const GENERATION_MODE_OPTIONS = ["auto", "patch", "full"];
 
   function resolveLocale(uiLanguage) {
     if (uiLanguage === "zh" || uiLanguage === "en") {
@@ -17,10 +16,6 @@
 
   function normalizeUiLanguage(value) {
     return UI_LANGUAGE_OPTIONS.includes(value) ? value : "en";
-  }
-
-  function normalizeGenerationMode(value) {
-    return GENERATION_MODE_OPTIONS.includes(value) ? value : "auto";
   }
 
   function toFiniteNumber(value) {
@@ -70,8 +65,8 @@
       roleMe: "你",
       roleAi: "AI",
       generatedXml: "已生成 XML",
-      generatedWithTokens: "已生成 XML，token: {tokens} · 策略: {mode}",
-      generatedNoTokens: "已生成 XML，token 不可用 · 策略: {mode}",
+      generatedWithTokens: "已生成 XML，token: {tokens}",
+      generatedNoTokens: "已生成 XML，token 不可用",
       pendingGeneration: "正在生成，请稍候...",
       promptRequired: "请输入需求",
       configRequired: "请先配置当前 API 的 baseUrl 与 API Key",
@@ -103,10 +98,6 @@
       uiLanguageAuto: "自动（跟随浏览器）",
       uiLanguageZh: "中文",
       uiLanguageEn: "英文",
-      generationMode: "生成策略",
-      generationModeAuto: "Auto（优先补丁，失败回退全量）",
-      generationModePatch: "Patch（搜索替换）",
-      generationModeFull: "Full（全量重生成）",
       baseUrl: "baseLLMUrl",
       apiKey: "API Key",
       temperature: "温度 temperature",
@@ -154,8 +145,8 @@
       roleMe: "You",
       roleAi: "AI",
       generatedXml: "Generated XML",
-      generatedWithTokens: "Generated XML, tokens: {tokens} · mode: {mode}",
-      generatedNoTokens: "Generated XML, tokens unavailable · mode: {mode}",
+      generatedWithTokens: "Generated XML, tokens: {tokens}",
+      generatedNoTokens: "Generated XML, tokens unavailable",
       pendingGeneration: "Generating, please wait...",
       promptRequired: "Please enter your request",
       configRequired: "Please configure baseUrl and API key for the active API profile",
@@ -187,10 +178,6 @@
       uiLanguageAuto: "Auto (follow browser)",
       uiLanguageZh: "Chinese",
       uiLanguageEn: "English",
-      generationMode: "Generation mode",
-      generationModeAuto: "Auto (prefer patch, fallback full)",
-      generationModePatch: "Patch (search & replace)",
-      generationModeFull: "Full (regenerate all)",
       baseUrl: "baseLLMUrl",
       apiKey: "API Key",
       temperature: "temperature",
@@ -248,7 +235,6 @@
     profiles: [createProfile({ id: "default", name: "Default" })],
     activeProfileId: "default",
     uiLanguage: "en",
-    generationMode: "auto",
     modelRef: "",
     model: "gpt-4o-mini",
     testedModelsByProfile: {},
@@ -355,13 +341,10 @@
     const fallbackRef = `${activeProfileId}${MODEL_REF_SEP}${model}`;
     const modelRef = modelRefFromCfg || fallbackRef;
     const uiLanguage = normalizeUiLanguage(String(cfg.uiLanguage || "en").trim());
-    const generationMode = normalizeGenerationMode(String(cfg.generationMode || "auto").trim());
-
     return {
       profiles,
       activeProfileId,
       uiLanguage,
-      generationMode,
       modelRef,
       model,
       testedModelsByProfile,
@@ -505,7 +488,6 @@
     syncActiveProfileFromModal();
     pruneTestedModelsByProfiles();
     state.config.uiLanguage = normalizeUiLanguage(String(getInput("drawio-ai-ui-language")?.value || "en").trim());
-    state.config.generationMode = normalizeGenerationMode(String(getInput("drawio-ai-generation-mode")?.value || "auto").trim());
     locale = resolveLocale(state.config.uiLanguage);
     const selectedRef = (getInput("drawio-ai-model-select").value || "").trim();
     const parsed = parseModelRef(selectedRef);
@@ -541,11 +523,6 @@
     const uiLangInput = getInput("drawio-ai-ui-language");
     if (uiLangInput) {
       uiLangInput.value = state.config.uiLanguage;
-    }
-
-    const generationModeInput = getInput("drawio-ai-generation-mode");
-    if (generationModeInput) {
-      generationModeInput.value = state.config.generationMode || "auto";
     }
 
     renderProfileOptions();
@@ -663,27 +640,12 @@
     });
   }
 
-  function getGenerationModeLabel(mode) {
-    const value = String(mode || "").trim();
-    if (value === "patch") {
-      return t("generationModePatch");
-    }
-    if (value === "full") {
-      return t("generationModeFull");
-    }
-    if (value === "full-fallback") {
-      return `${t("generationModePatch")} -> ${t("generationModeFull")}`;
-    }
-    return t("generationModeAuto");
-  }
-
   function buildAssistantSummary(msg) {
     const usage = normalizeUsage(msg?.usage);
-    const modeLabel = getGenerationModeLabel(msg?.generationMode || "auto");
     if (usage && usage.totalTokens !== null) {
-      return t("generatedWithTokens", { tokens: usage.totalTokens, mode: modeLabel });
+      return t("generatedWithTokens", { tokens: usage.totalTokens });
     }
-    return t("generatedNoTokens", { mode: modeLabel });
+    return t("generatedNoTokens");
   }
 
   function renderHistory() {
@@ -955,8 +917,7 @@
           userPrompt: prompt,
           currentXml,
           imageDataUrl,
-          history: historyForModel,
-          generationMode: state.config.generationMode || "auto"
+          history: historyForModel
         }
       });
 
@@ -970,7 +931,6 @@
       }
 
       const usage = normalizeUsage(generateResp.usage);
-      const generationMode = String(generateResp.generationMode || state.config.generationMode || "auto");
 
       getInput("drawio-ai-output").value = xml;
       pushXmlVersion(xml);
@@ -979,8 +939,7 @@
         pending: false,
         text: t("generatedXml"),
         xml,
-        usage,
-        generationMode
+        usage
       });
 
       if (imageDataUrl) {
@@ -1087,13 +1046,6 @@
           <option value="auto">${escapeHtml(t("uiLanguageAuto"))}</option>
           <option value="zh">${escapeHtml(t("uiLanguageZh"))}</option>
           <option value="en">${escapeHtml(t("uiLanguageEn"))}</option>
-        </select>
-
-        <label class="drawio-ai-label">${escapeHtml(t("generationMode"))}</label>
-        <select id="drawio-ai-generation-mode" class="drawio-ai-input">
-          <option value="auto">${escapeHtml(t("generationModeAuto"))}</option>
-          <option value="patch">${escapeHtml(t("generationModePatch"))}</option>
-          <option value="full">${escapeHtml(t("generationModeFull"))}</option>
         </select>
 
         <label class="drawio-ai-label">${escapeHtml(t("baseUrl"))}</label>
