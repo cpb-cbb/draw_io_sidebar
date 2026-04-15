@@ -1,10 +1,26 @@
-const DEFAULT_SYSTEM_PROMPT = [
+const FULL_XML_SYSTEM_PROMPT = [
   "You are a draw.io XML assistant.",
   "Return only valid draw.io mxGraphModel XML.",
   "Do not include markdown fences.",
   "If user asks for modification, update based on current diagram XML.",
   "Output must start with <mxGraphModel and be parseable XML."
 ].join(" ");
+
+const PATCH_XML_SYSTEM_PROMPT = [
+  "You are a draw.io XML patch assistant.",
+  "Return only SEARCH/REPLACE patch blocks for modifying the current XML.",
+  "Do not output XML unless it appears inside a REPLACE block.",
+  "Do not include markdown fences or explanations.",
+  "Use one or more blocks in this exact format:",
+  "<<<SEARCH>>>",
+  "<exact text to find in current XML>",
+  "<<<REPLACE>>>",
+  "<replacement text>",
+  "<<<END>>>"
+].join(" ");
+
+const GENERATION_MODE_OPTIONS = ["auto", "patch", "full"];
+const REDRAW_PROMPT_RE = /(重新绘制|重新画|从头|重建|全新绘制|全部替换|完全重画|推翻重做|redraw|from scratch|rebuild|recreate|new diagram|start over|rewrite all)/i;
 
 function jsonResponse(ok, data) {
   return { ok, ...data };
@@ -31,13 +47,28 @@ function buildHistoryMessages(historyList) {
     .filter(Boolean);
 }
 
-function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageDataUrl, history, temperature, maxTokens }) {
+function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageDataUrl, history, temperature, maxTokens, mode }) {
   const textParts = [];
-  textParts.push("User requirement:");
-  textParts.push(userPrompt || "");
-  if (currentXml) {
+  const normalizedMode = mode === "patch" ? "patch" : "full";
+
+  if (normalizedMode === "patch") {
+    textParts.push("Task:");
+    textParts.push("Modify the current draw.io XML by returning SEARCH/REPLACE blocks only.");
+    textParts.push("Rules:");
+    textParts.push("- SEARCH text must be copied from current XML exactly.");
+    textParts.push("- Keep replacements minimal and preserve unrelated XML.");
+    textParts.push("- Return one or more blocks using <<<SEARCH>>>, <<<REPLACE>>>, <<<END>>>.");
+    textParts.push("User requirement:");
+    textParts.push(userPrompt || "");
     textParts.push("Current diagram XML:");
-    textParts.push(currentXml);
+    textParts.push(currentXml || "");
+  } else {
+    textParts.push("User requirement:");
+    textParts.push(userPrompt || "");
+    if (currentXml) {
+      textParts.push("Current diagram XML:");
+      textParts.push(currentXml);
+    }
   }
 
   const historyMessages = buildHistoryMessages(history);
@@ -46,7 +77,7 @@ function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageData
     return {
       model,
       messages: [
-        { role: "system", content: DEFAULT_SYSTEM_PROMPT },
+        { role: "system", content: normalizedMode === "patch" ? PATCH_XML_SYSTEM_PROMPT : FULL_XML_SYSTEM_PROMPT },
         ...historyMessages,
         {
           role: "user",
@@ -64,7 +95,7 @@ function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageData
   return {
     model,
     messages: [
-      { role: "system", content: DEFAULT_SYSTEM_PROMPT },
+      { role: "system", content: normalizedMode === "patch" ? PATCH_XML_SYSTEM_PROMPT : FULL_XML_SYSTEM_PROMPT },
       ...historyMessages,
       { role: "user", content: textParts.join("\n\n") }
     ],
@@ -89,6 +120,253 @@ function extractXmlFromResponse(content) {
   }
 
   return raw;
+}
+
+function normalizeGenerationMode(mode) {
+  const raw = String(mode || "").trim().toLowerCase();
+  return GENERATION_MODE_OPTIONS.includes(raw) ? raw : "auto";
+}
+
+function shouldPreferFullGeneration(userPrompt, currentXml) {
+  if (!String(currentXml || "").includes("<mxGraphModel")) {
+    return true;
+  }
+  return REDRAW_PROMPT_RE.test(String(userPrompt || ""));
+}
+
+function normalizeMessageContent(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (part && typeof part === "object" && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+
+  return "";
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeUsage(rawUsage) {
+  if (!rawUsage || typeof rawUsage !== "object") {
+    return null;
+  }
+
+  const promptTokens = toFiniteNumber(rawUsage.prompt_tokens ?? rawUsage.input_tokens);
+  const completionTokens = toFiniteNumber(rawUsage.completion_tokens ?? rawUsage.output_tokens);
+  const inferredTotal =
+    promptTokens !== null && completionTokens !== null
+      ? promptTokens + completionTokens
+      : null;
+  const totalTokens = toFiniteNumber(rawUsage.total_tokens) ?? inferredTotal;
+
+  if (promptTokens === null && completionTokens === null && totalTokens === null) {
+    return null;
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens
+  };
+}
+
+function mergeUsage(first, second) {
+  const f = first || {};
+  const s = second || {};
+
+  const sumField = (key) => {
+    const a = toFiniteNumber(f[key]);
+    const b = toFiniteNumber(s[key]);
+    if (a === null && b === null) {
+      return null;
+    }
+    return (a || 0) + (b || 0);
+  };
+
+  const merged = {
+    promptTokens: sumField("promptTokens"),
+    completionTokens: sumField("completionTokens"),
+    totalTokens: sumField("totalTokens")
+  };
+
+  if (merged.promptTokens === null && merged.completionTokens === null && merged.totalTokens === null) {
+    return null;
+  }
+
+  return merged;
+}
+
+function parsePatchBlocks(content) {
+  const normalized = normalizeMessageContent(content);
+  const fenced = normalized.match(/```(?:text|xml)?\s*([\s\S]*?)\s*```/i);
+  const raw = fenced ? fenced[1] : normalized;
+
+  const blocks = [];
+  const matcher = /<<<SEARCH>>>\s*([\s\S]*?)\s*<<<REPLACE>>>\s*([\s\S]*?)\s*<<<END>>>/g;
+  let match;
+
+  while ((match = matcher.exec(raw)) !== null) {
+    const search = match[1] || "";
+    const replace = match[2] || "";
+    if (!search.trim()) {
+      continue;
+    }
+    blocks.push({ search, replace });
+  }
+
+  return blocks;
+}
+
+function replaceFirstOccurrence(text, searchValue, replaceValue) {
+  const index = text.indexOf(searchValue);
+  if (index < 0) {
+    return null;
+  }
+
+  return text.slice(0, index) + replaceValue + text.slice(index + searchValue.length);
+}
+
+function applyPatchBlocksToXml(currentXml, blocks) {
+  let nextXml = String(currentXml || "");
+
+  blocks.forEach((block, index) => {
+    const searchCandidates = [block.search, block.search.trim()].filter((v, i, arr) => v && arr.indexOf(v) === i);
+    let updated = null;
+
+    for (const candidate of searchCandidates) {
+      const replaced = replaceFirstOccurrence(nextXml, candidate, block.replace || "");
+      if (replaced !== null) {
+        updated = replaced;
+        break;
+      }
+    }
+
+    if (updated === null) {
+      throw new Error(`Patch block ${index + 1} search text not found in current XML`);
+    }
+
+    nextXml = updated;
+  });
+
+  return nextXml;
+}
+
+function validateMxGraphXml(xml) {
+  const value = String(xml || "").trim();
+
+  if (!value.startsWith("<mxGraphModel") || !value.includes("</mxGraphModel>")) {
+    throw new Error("Model response does not contain valid mxGraphModel XML.");
+  }
+
+  if (typeof DOMParser === "function") {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(value, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      throw new Error("Generated XML is not parseable.");
+    }
+  }
+
+  return value;
+}
+
+async function callChatCompletions(endpoint, apiKey, requestBody) {
+  const resp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`LLM request failed: ${resp.status} ${text.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const content = normalizeMessageContent(data?.choices?.[0]?.message?.content || "");
+  return {
+    content,
+    usage: normalizeUsage(data?.usage)
+  };
+}
+
+async function requestFullXml(payload, endpoint) {
+  const llmResponse = await callChatCompletions(
+    endpoint,
+    payload.apiKey,
+    buildOpenAICompatiblePayload({
+      model: payload.model || "gpt-4o-mini",
+      userPrompt: payload.userPrompt,
+      currentXml: payload.currentXml,
+      imageDataUrl: payload.imageDataUrl,
+      history: payload.history,
+      temperature: payload.temperature,
+      maxTokens: payload.maxTokens,
+      mode: "full"
+    })
+  );
+
+  const xml = validateMxGraphXml(extractXmlFromResponse(llmResponse.content));
+  return {
+    xml,
+    raw: llmResponse.content,
+    usage: llmResponse.usage,
+    generationMode: "full"
+  };
+}
+
+async function requestPatchXml(payload, endpoint) {
+  const llmResponse = await callChatCompletions(
+    endpoint,
+    payload.apiKey,
+    buildOpenAICompatiblePayload({
+      model: payload.model || "gpt-4o-mini",
+      userPrompt: payload.userPrompt,
+      currentXml: payload.currentXml,
+      imageDataUrl: payload.imageDataUrl,
+      history: payload.history,
+      temperature: payload.temperature,
+      maxTokens: payload.maxTokens,
+      mode: "patch"
+    })
+  );
+
+  try {
+    const blocks = parsePatchBlocks(llmResponse.content);
+    if (!blocks.length) {
+      throw new Error("Patch response does not contain SEARCH/REPLACE blocks.");
+    }
+
+    const patchedXml = validateMxGraphXml(applyPatchBlocksToXml(payload.currentXml, blocks));
+    return {
+      xml: patchedXml,
+      raw: llmResponse.content,
+      usage: llmResponse.usage,
+      generationMode: "patch",
+      patchCount: blocks.length
+    };
+  } catch (error) {
+    error.patchUsage = llmResponse.usage;
+    throw error;
+  }
 }
 
 async function testApiConnectivity(payload) {
@@ -162,40 +440,36 @@ async function cropImageDataUrl(dataUrl, crop) {
 
 async function requestXmlFromLlm(payload) {
   const endpoint = payload.baseUrl.replace(/\/$/, "") + "/chat/completions";
+  const mode = normalizeGenerationMode(payload.generationMode);
+  const hasCurrentXml = String(payload.currentXml || "").includes("<mxGraphModel");
+  const forceFull = mode === "auto" && shouldPreferFullGeneration(payload.userPrompt, payload.currentXml);
 
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${payload.apiKey}`
-    },
-    body: JSON.stringify(
-      buildOpenAICompatiblePayload({
-        model: payload.model || "gpt-4o-mini",
-        userPrompt: payload.userPrompt,
-        currentXml: payload.currentXml,
-        imageDataUrl: payload.imageDataUrl,
-        history: payload.history,
-        temperature: payload.temperature,
-        maxTokens: payload.maxTokens
-      })
-    )
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`LLM request failed: ${resp.status} ${text.slice(0, 200)}`);
+  if (mode === "full" || forceFull || (mode === "auto" && !hasCurrentXml)) {
+    return requestFullXml(payload, endpoint);
   }
 
-  const data = await resp.json();
-  const content = data?.choices?.[0]?.message?.content || "";
-  const xml = extractXmlFromResponse(content);
-
-  if (!xml.includes("<mxGraphModel")) {
-    throw new Error("Model response does not contain valid mxGraphModel XML.");
+  if (mode === "patch" && !hasCurrentXml) {
+    const fallback = await requestFullXml(payload, endpoint);
+    return {
+      ...fallback,
+      generationMode: "full-fallback",
+      fallbackFrom: "patch",
+      fallbackReason: "Current XML is empty"
+    };
   }
 
-  return { xml, raw: content };
+  try {
+    return await requestPatchXml(payload, endpoint);
+  } catch (patchError) {
+    const fallback = await requestFullXml(payload, endpoint);
+    return {
+      ...fallback,
+      usage: mergeUsage(patchError?.patchUsage, fallback.usage),
+      generationMode: "full-fallback",
+      fallbackFrom: "patch",
+      fallbackReason: patchError?.message || "Patch failed"
+    };
+  }
 }
 
 async function injectXmlToTab(tabId, xml) {

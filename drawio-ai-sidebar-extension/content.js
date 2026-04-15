@@ -2,8 +2,11 @@
   const SIDEBAR_ID = "drawio-ai-sidebar";
   const CONFIG_KEY = "drawioAiConfigV2";
   const HISTORY_KEY = "drawioAiHistory";
+  const VERSION_HISTORY_KEY = "drawioAiXmlVersionsV1";
+  const MAX_XML_VERSION_COUNT = 50;
   const MODEL_REF_SEP = "::";
   const UI_LANGUAGE_OPTIONS = ["auto", "zh", "en"];
+  const GENERATION_MODE_OPTIONS = ["auto", "patch", "full"];
 
   function resolveLocale(uiLanguage) {
     if (uiLanguage === "zh" || uiLanguage === "en") {
@@ -14,6 +17,36 @@
 
   function normalizeUiLanguage(value) {
     return UI_LANGUAGE_OPTIONS.includes(value) ? value : "en";
+  }
+
+  function normalizeGenerationMode(value) {
+    return GENERATION_MODE_OPTIONS.includes(value) ? value : "auto";
+  }
+
+  function toFiniteNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function normalizeUsage(rawUsage) {
+    if (!rawUsage || typeof rawUsage !== "object") {
+      return null;
+    }
+
+    const promptTokens = toFiniteNumber(rawUsage.promptTokens ?? rawUsage.prompt_tokens ?? rawUsage.input_tokens);
+    const completionTokens = toFiniteNumber(rawUsage.completionTokens ?? rawUsage.completion_tokens ?? rawUsage.output_tokens);
+    const totalTokens = toFiniteNumber(rawUsage.totalTokens ?? rawUsage.total_tokens)
+      ?? (promptTokens !== null && completionTokens !== null ? promptTokens + completionTokens : null);
+
+    if (promptTokens === null && completionTokens === null && totalTokens === null) {
+      return null;
+    }
+
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens
+    };
   }
 
   let locale = resolveLocale("en");
@@ -36,11 +69,15 @@
       emptyHistory: "开始描述你想要的流程图，或上传图片辅助说明。",
       roleMe: "你",
       roleAi: "AI",
-      generatedXml: "已生成 XML，长度 {len}",
+      generatedXml: "已生成 XML",
+      generatedWithTokens: "已生成 XML，token: {tokens} · 策略: {mode}",
+      generatedNoTokens: "已生成 XML，token 不可用 · 策略: {mode}",
+      pendingGeneration: "正在生成，请稍候...",
       promptRequired: "请输入需求",
       configRequired: "请先配置当前 API 的 baseUrl 与 API Key",
       readingCanvas: "读取当前画布...",
       generating: "请求模型生成 XML...",
+      generationBusy: "当前已有生成任务进行中，请稍候",
       generatedNoInject: "生成完成，尚未注入",
       injecting: "后台注入中...",
       injectSuccess: "注入成功，画布已更新",
@@ -66,6 +103,10 @@
       uiLanguageAuto: "自动（跟随浏览器）",
       uiLanguageZh: "中文",
       uiLanguageEn: "英文",
+      generationMode: "生成策略",
+      generationModeAuto: "Auto（优先补丁，失败回退全量）",
+      generationModePatch: "Patch（搜索替换）",
+      generationModeFull: "Full（全量重生成）",
       baseUrl: "baseLLMUrl",
       apiKey: "API Key",
       temperature: "温度 temperature",
@@ -85,7 +126,14 @@
       testFailed: "API 连接测试失败：{error}",
       screenshotFailed: "截屏失败",
       profileNeedOne: "至少保留一个配置",
-      profileNameRequired: "配置名称不能为空"
+      profileNameRequired: "配置名称不能为空",
+      versionPrev: "上一步",
+      versionNext: "下一步",
+      versionIndex: "版本 {index}/{total}",
+      versionEmpty: "暂无版本",
+      versionInjected: "已切换到版本 {index}/{total} 并自动注入",
+      versionAtOldest: "已是最早版本",
+      versionAtNewest: "已是最新版本"
     },
     en: {
       title: "AI Diagram Copilot",
@@ -105,11 +153,15 @@
       emptyHistory: "Describe your diagram needs, or upload an image as context.",
       roleMe: "You",
       roleAi: "AI",
-      generatedXml: "Generated XML, length {len}",
+      generatedXml: "Generated XML",
+      generatedWithTokens: "Generated XML, tokens: {tokens} · mode: {mode}",
+      generatedNoTokens: "Generated XML, tokens unavailable · mode: {mode}",
+      pendingGeneration: "Generating, please wait...",
       promptRequired: "Please enter your request",
       configRequired: "Please configure baseUrl and API key for the active API profile",
       readingCanvas: "Reading current canvas...",
       generating: "Requesting model XML...",
+      generationBusy: "A generation task is already running",
       generatedNoInject: "Generated, not injected yet",
       injecting: "Injecting in background...",
       injectSuccess: "Injected successfully, canvas updated",
@@ -135,6 +187,10 @@
       uiLanguageAuto: "Auto (follow browser)",
       uiLanguageZh: "Chinese",
       uiLanguageEn: "English",
+      generationMode: "Generation mode",
+      generationModeAuto: "Auto (prefer patch, fallback full)",
+      generationModePatch: "Patch (search & replace)",
+      generationModeFull: "Full (regenerate all)",
       baseUrl: "baseLLMUrl",
       apiKey: "API Key",
       temperature: "temperature",
@@ -154,7 +210,14 @@
       testFailed: "API test failed: {error}",
       screenshotFailed: "Screenshot failed",
       profileNeedOne: "At least one profile must remain",
-      profileNameRequired: "Profile name is required"
+      profileNameRequired: "Profile name is required",
+      versionPrev: "Previous",
+      versionNext: "Next",
+      versionIndex: "Version {index}/{total}",
+      versionEmpty: "No versions yet",
+      versionInjected: "Switched to version {index}/{total} and auto-injected",
+      versionAtOldest: "Already at oldest version",
+      versionAtNewest: "Already at newest version"
     }
   };
 
@@ -185,6 +248,7 @@
     profiles: [createProfile({ id: "default", name: "Default" })],
     activeProfileId: "default",
     uiLanguage: "en",
+    generationMode: "auto",
     modelRef: "",
     model: "gpt-4o-mini",
     testedModelsByProfile: {},
@@ -195,6 +259,9 @@
   const state = {
     config: { ...defaultConfig },
     history: [],
+    xmlVersions: [],
+    versionCursor: -1,
+    isGenerating: false,
     runtimeListenerBound: false,
     uploadedImageDataUrl: "",
     screenshotDataUrl: "",
@@ -288,11 +355,13 @@
     const fallbackRef = `${activeProfileId}${MODEL_REF_SEP}${model}`;
     const modelRef = modelRefFromCfg || fallbackRef;
     const uiLanguage = normalizeUiLanguage(String(cfg.uiLanguage || "en").trim());
+    const generationMode = normalizeGenerationMode(String(cfg.generationMode || "auto").trim());
 
     return {
       profiles,
       activeProfileId,
       uiLanguage,
+      generationMode,
       modelRef,
       model,
       testedModelsByProfile,
@@ -436,6 +505,7 @@
     syncActiveProfileFromModal();
     pruneTestedModelsByProfiles();
     state.config.uiLanguage = normalizeUiLanguage(String(getInput("drawio-ai-ui-language")?.value || "en").trim());
+    state.config.generationMode = normalizeGenerationMode(String(getInput("drawio-ai-generation-mode")?.value || "auto").trim());
     locale = resolveLocale(state.config.uiLanguage);
     const selectedRef = (getInput("drawio-ai-model-select").value || "").trim();
     const parsed = parseModelRef(selectedRef);
@@ -471,6 +541,11 @@
     const uiLangInput = getInput("drawio-ai-ui-language");
     if (uiLangInput) {
       uiLangInput.value = state.config.uiLanguage;
+    }
+
+    const generationModeInput = getInput("drawio-ai-generation-mode");
+    if (generationModeInput) {
+      generationModeInput.value = state.config.generationMode || "auto";
     }
 
     renderProfileOptions();
@@ -529,7 +604,12 @@
 
   async function loadHistory() {
     const data = await chrome.storage.local.get([HISTORY_KEY]);
-    state.history = Array.isArray(data[HISTORY_KEY]) ? data[HISTORY_KEY] : [];
+    const history = Array.isArray(data[HISTORY_KEY]) ? data[HISTORY_KEY] : [];
+    state.history = history.map((item) => ({
+      ...item,
+      pending: false,
+      usage: normalizeUsage(item?.usage)
+    }));
     renderHistory();
   }
 
@@ -541,13 +621,69 @@
   }
 
   function appendHistory(item) {
-    state.history.push({
+    const entry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       ts: Date.now(),
-      ...item
-    });
+      ...item,
+      usage: normalizeUsage(item?.usage)
+    };
+    state.history.push(entry);
     renderHistory();
     saveHistory().catch(() => {});
+    return entry.id;
+  }
+
+  function updateHistoryItem(id, patch) {
+    const idx = state.history.findIndex((item) => item.id === id);
+    if (idx < 0) return;
+    state.history[idx] = {
+      ...state.history[idx],
+      ...patch,
+      usage: normalizeUsage(patch?.usage ?? state.history[idx].usage)
+    };
+    renderHistory();
+    saveHistory().catch(() => {});
+  }
+
+  function removeHistoryItem(id) {
+    const next = state.history.filter((item) => item.id !== id);
+    if (next.length === state.history.length) {
+      return;
+    }
+    state.history = next;
+    renderHistory();
+    saveHistory().catch(() => {});
+  }
+
+  function setGenerateButtonsState(isBusy) {
+    ["drawio-ai-generate-only", "drawio-ai-generate-inject"].forEach((id) => {
+      const btn = getInput(id);
+      if (!btn) return;
+      btn.disabled = !!isBusy;
+    });
+  }
+
+  function getGenerationModeLabel(mode) {
+    const value = String(mode || "").trim();
+    if (value === "patch") {
+      return t("generationModePatch");
+    }
+    if (value === "full") {
+      return t("generationModeFull");
+    }
+    if (value === "full-fallback") {
+      return `${t("generationModePatch")} -> ${t("generationModeFull")}`;
+    }
+    return t("generationModeAuto");
+  }
+
+  function buildAssistantSummary(msg) {
+    const usage = normalizeUsage(msg?.usage);
+    const modeLabel = getGenerationModeLabel(msg?.generationMode || "auto");
+    if (usage && usage.totalTokens !== null) {
+      return t("generatedWithTokens", { tokens: usage.totalTokens, mode: modeLabel });
+    }
+    return t("generatedNoTokens", { mode: modeLabel });
   }
 
   function renderHistory() {
@@ -562,22 +698,169 @@
     list.innerHTML = state.history
       .map((msg) => {
         const roleCls = msg.role === "assistant" ? "assistant" : "user";
-        const body = msg.role === "assistant" && msg.xml
-          ? t("generatedXml", { len: msg.xml.length })
-          : (msg.text || "");
+        const pendingCls = msg.pending ? " pending" : "";
         const tsDate = new Date(msg.ts || Date.now());
         const tsText = `${String(tsDate.getHours()).padStart(2, "0")}:${String(tsDate.getMinutes()).padStart(2, "0")}`;
 
+        let bodyHtml = "";
+        if (msg.pending) {
+          bodyHtml = `<span class="drawio-ai-spinner" aria-hidden="true"></span><span>${escapeHtml(msg.text || t("pendingGeneration"))}</span>`;
+        } else {
+          const body = msg.role === "assistant" && msg.xml
+            ? buildAssistantSummary(msg)
+            : (msg.text || "");
+          bodyHtml = escapeHtml(body);
+        }
+
         return `
-          <div class="drawio-ai-msg ${roleCls}">
+          <div class="drawio-ai-msg ${roleCls}${pendingCls}">
             <div class="drawio-ai-msg-meta">${msg.role === "assistant" ? t("roleAi") : t("roleMe")} · ${tsText}</div>
-            <div class="drawio-ai-msg-body">${escapeHtml(body)}</div>
+            <div class="drawio-ai-msg-body">${bodyHtml}</div>
           </div>
         `;
       })
       .join("");
 
     list.scrollTop = list.scrollHeight;
+  }
+
+  function normalizeVersionItems(rawItems) {
+    const list = Array.isArray(rawItems) ? rawItems : [];
+    return list
+      .map((item, index) => {
+        if (typeof item === "string") {
+          return {
+            id: `version-${Date.now()}-${index}`,
+            ts: Date.now(),
+            xml: item
+          };
+        }
+
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        return {
+          id: item.id || `version-${Date.now()}-${index}`,
+          ts: Number.isFinite(Number(item.ts)) ? Number(item.ts) : Date.now(),
+          xml: String(item.xml || "")
+        };
+      })
+      .filter((item) => !!item && item.xml.includes("<mxGraphModel"));
+  }
+
+  async function saveXmlVersions() {
+    const clipped = state.xmlVersions.slice(-MAX_XML_VERSION_COUNT);
+    state.xmlVersions = clipped;
+    state.versionCursor = clipped.length
+      ? Math.min(Math.max(state.versionCursor, 0), clipped.length - 1)
+      : -1;
+
+    await chrome.storage.local.set({
+      [VERSION_HISTORY_KEY]: {
+        items: clipped,
+        cursor: state.versionCursor
+      }
+    });
+  }
+
+  async function loadXmlVersions() {
+    const data = await chrome.storage.local.get([VERSION_HISTORY_KEY]);
+    const raw = data[VERSION_HISTORY_KEY];
+
+    let rawItems = [];
+    let cursor = -1;
+
+    if (Array.isArray(raw)) {
+      rawItems = raw;
+      cursor = raw.length - 1;
+    } else if (raw && typeof raw === "object") {
+      rawItems = Array.isArray(raw.items) ? raw.items : [];
+      cursor = Number.isInteger(raw.cursor) ? raw.cursor : rawItems.length - 1;
+    }
+
+    state.xmlVersions = normalizeVersionItems(rawItems).slice(-MAX_XML_VERSION_COUNT);
+    state.versionCursor = state.xmlVersions.length
+      ? Math.min(Math.max(cursor, 0), state.xmlVersions.length - 1)
+      : -1;
+
+    renderVersionNavigator();
+  }
+
+  function renderVersionNavigator() {
+    const prevBtn = getInput("drawio-ai-version-prev");
+    const nextBtn = getInput("drawio-ai-version-next");
+    const label = getInput("drawio-ai-version-label");
+    const total = state.xmlVersions.length;
+
+    if (label) {
+      label.textContent = total
+        ? t("versionIndex", { index: state.versionCursor + 1, total })
+        : t("versionEmpty");
+    }
+
+    if (prevBtn) {
+      prevBtn.disabled = !total || state.versionCursor <= 0;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = !total || state.versionCursor >= total - 1;
+    }
+  }
+
+  function pushXmlVersion(xml) {
+    const value = String(xml || "").trim();
+    if (!value || !value.includes("<mxGraphModel")) {
+      return;
+    }
+
+    const last = state.xmlVersions[state.xmlVersions.length - 1];
+    if (last && last.xml === value) {
+      state.versionCursor = state.xmlVersions.length - 1;
+      renderVersionNavigator();
+      saveXmlVersions().catch(() => {});
+      return;
+    }
+
+    state.xmlVersions.push({
+      id: `version-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      ts: Date.now(),
+      xml: value
+    });
+
+    if (state.xmlVersions.length > MAX_XML_VERSION_COUNT) {
+      state.xmlVersions = state.xmlVersions.slice(-MAX_XML_VERSION_COUNT);
+    }
+
+    state.versionCursor = state.xmlVersions.length - 1;
+    renderVersionNavigator();
+    saveXmlVersions().catch(() => {});
+  }
+
+  async function navigateVersion(offset) {
+    if (!state.xmlVersions.length) {
+      setStatus(t("versionEmpty"), true);
+      return;
+    }
+
+    const nextCursor = state.versionCursor + offset;
+    if (nextCursor < 0) {
+      setStatus(t("versionAtOldest"), true);
+      return;
+    }
+
+    if (nextCursor >= state.xmlVersions.length) {
+      setStatus(t("versionAtNewest"), true);
+      return;
+    }
+
+    const target = state.xmlVersions[nextCursor];
+    state.versionCursor = nextCursor;
+    renderVersionNavigator();
+
+    getInput("drawio-ai-output").value = target.xml;
+    await injectXml(target.xml);
+    setStatus(t("versionInjected", { index: nextCursor + 1, total: state.xmlVersions.length }), false);
+    saveXmlVersions().catch(() => {});
   }
 
   async function getCurrentXml() {
@@ -600,7 +883,10 @@
   }
 
   function getHistoryForModel() {
-    return state.history.slice(-12).map((item) => ({
+    return state.history
+      .filter((item) => !item.pending)
+      .slice(-12)
+      .map((item) => ({
       role: item.role,
       text: item.text || "",
       xml: item.xml || ""
@@ -608,6 +894,11 @@
   }
 
   async function runGeneration(injectAfter) {
+    if (state.isGenerating) {
+      setStatus(t("generationBusy"), true);
+      return;
+    }
+
     const prompt = (getInput("drawio-ai-prompt-input").value || "").trim();
     if (!prompt) {
       setStatus(t("promptRequired"), true);
@@ -645,44 +936,72 @@
     const historyForModel = getHistoryForModel();
 
     appendHistory({ role: "user", text: prompt });
+    const pendingMsgId = appendHistory({ role: "assistant", text: t("pendingGeneration"), pending: true });
     getInput("drawio-ai-prompt-input").value = "";
 
-    setStatus(t("readingCanvas"), false);
-    const currentXml = await getCurrentXml();
+    state.isGenerating = true;
+    setGenerateButtonsState(true);
 
-    setStatus(t("generating"), false);
-    const imageDataUrl = pickImageDataUrl();
-    const generateResp = await sendMessage({
-      type: "GENERATE_XML",
-      payload: {
-        ...cfg,
-        userPrompt: prompt,
-        currentXml,
-        imageDataUrl,
-        history: historyForModel
+    try {
+      setStatus(t("readingCanvas"), false);
+      const currentXml = await getCurrentXml();
+
+      setStatus(t("generating"), false);
+      const imageDataUrl = pickImageDataUrl();
+      const generateResp = await sendMessage({
+        type: "GENERATE_XML",
+        payload: {
+          ...cfg,
+          userPrompt: prompt,
+          currentXml,
+          imageDataUrl,
+          history: historyForModel,
+          generationMode: state.config.generationMode || "auto"
+        }
+      });
+
+      if (!generateResp.ok) {
+        throw new Error(generateResp.error || "生成失败");
       }
-    });
 
-    if (!generateResp.ok) {
-      throw new Error(generateResp.error || "生成失败");
+      const xml = (generateResp.xml || "").trim();
+      if (!xml) {
+        throw new Error("模型返回为空");
+      }
+
+      const usage = normalizeUsage(generateResp.usage);
+      const generationMode = String(generateResp.generationMode || state.config.generationMode || "auto");
+
+      getInput("drawio-ai-output").value = xml;
+      pushXmlVersion(xml);
+
+      updateHistoryItem(pendingMsgId, {
+        pending: false,
+        text: t("generatedXml"),
+        xml,
+        usage,
+        generationMode
+      });
+
+      if (imageDataUrl) {
+        clearImageContext();
+      }
+
+      if (!injectAfter) {
+        setStatus(t("generatedNoInject"), false);
+        return;
+      }
+
+      setStatus(t("injecting"), false);
+      await injectXml(xml);
+      setStatus(t("injectSuccess"), false);
+    } catch (error) {
+      removeHistoryItem(pendingMsgId);
+      throw error;
+    } finally {
+      state.isGenerating = false;
+      setGenerateButtonsState(false);
     }
-
-    const xml = (generateResp.xml || "").trim();
-    getInput("drawio-ai-output").value = xml;
-    appendHistory({ role: "assistant", text: t("generatedXml", { len: xml.length }), xml });
-
-    if (imageDataUrl) {
-      clearImageContext();
-    }
-
-    if (!injectAfter) {
-      setStatus(t("generatedNoInject"), false);
-      return;
-    }
-
-    setStatus(t("injecting"), false);
-    await injectXml(xml);
-    setStatus(t("injectSuccess"), false);
   }
 
   function buildSidebarHtml() {
@@ -726,6 +1045,11 @@
       <details class="drawio-ai-xml-panel">
         <summary>${escapeHtml(t("xmlPanel"))}</summary>
         <textarea id="drawio-ai-output" class="drawio-ai-output"></textarea>
+        <div class="drawio-ai-version-nav">
+          <button class="drawio-ai-btn secondary" id="drawio-ai-version-prev" type="button">${escapeHtml(t("versionPrev"))}</button>
+          <span id="drawio-ai-version-label" class="drawio-ai-version-label">${escapeHtml(t("versionEmpty"))}</span>
+          <button class="drawio-ai-btn secondary" id="drawio-ai-version-next" type="button">${escapeHtml(t("versionNext"))}</button>
+        </div>
         <div class="drawio-ai-composer-actions" style="margin-top:8px">
           <button class="drawio-ai-btn secondary" id="drawio-ai-inject-output" type="button">${escapeHtml(t("injectOutput"))}</button>
           <button class="drawio-ai-btn secondary" id="drawio-ai-get-current" type="button">${escapeHtml(t("getCurrentXml"))}</button>
@@ -763,6 +1087,13 @@
           <option value="auto">${escapeHtml(t("uiLanguageAuto"))}</option>
           <option value="zh">${escapeHtml(t("uiLanguageZh"))}</option>
           <option value="en">${escapeHtml(t("uiLanguageEn"))}</option>
+        </select>
+
+        <label class="drawio-ai-label">${escapeHtml(t("generationMode"))}</label>
+        <select id="drawio-ai-generation-mode" class="drawio-ai-input">
+          <option value="auto">${escapeHtml(t("generationModeAuto"))}</option>
+          <option value="patch">${escapeHtml(t("generationModePatch"))}</option>
+          <option value="full">${escapeHtml(t("generationModeFull"))}</option>
         </select>
 
         <label class="drawio-ai-label">${escapeHtml(t("baseUrl"))}</label>
@@ -1236,19 +1567,33 @@
       runGeneration(false).catch((e) => setStatus(e.message, true));
     });
 
+    getInput("drawio-ai-version-prev").addEventListener("click", () => {
+      navigateVersion(-1).catch((e) => setStatus(e.message, true));
+    });
+
+    getInput("drawio-ai-version-next").addEventListener("click", () => {
+      navigateVersion(1).catch((e) => setStatus(e.message, true));
+    });
+
     getInput("drawio-ai-inject-output").addEventListener("click", () => {
       const xml = (getInput("drawio-ai-output").value || "").trim();
       if (!xml) {
         setStatus(t("xmlEmpty"), true);
         return;
       }
-      injectXml(xml).then(() => setStatus(t("injectedOutput"), false)).catch((e) => setStatus(e.message, true));
+      injectXml(xml)
+        .then(() => {
+          pushXmlVersion(xml);
+          setStatus(t("injectedOutput"), false);
+        })
+        .catch((e) => setStatus(e.message, true));
     });
 
     getInput("drawio-ai-get-current").addEventListener("click", () => {
       getCurrentXml()
         .then((xml) => {
           getInput("drawio-ai-output").value = xml;
+          pushXmlVersion(xml);
           setStatus(t("currentXmlOk"), false);
         })
         .catch((e) => setStatus(e.message, true));
@@ -1288,7 +1633,7 @@
       }
     });
 
-    Promise.all([loadConfig(), loadHistory()])
+    Promise.all([loadConfig(), loadHistory(), loadXmlVersions()])
       .then(() => {
         setStatus(t("ready"), false);
       })
