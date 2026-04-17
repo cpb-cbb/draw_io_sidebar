@@ -83,10 +83,14 @@
       injectedOutput: "已注入 XML",
       currentXmlOk: "已读取当前 XML",
       uploadedOk: "参考图已上传",
+      uploadedCountOk: "已上传 {count} 张参考图",
       capturing: "正在截屏...",
       annotateHint: "请拖拽文字或涂鸦后点击完成",
       screenshotUpdated: "截图标注已更新",
+      pastedImageOk: "已粘贴图片",
       screenshotCleared: "图片上下文已清空",
+      removeImage: "移除图片",
+      imageRemoved: "图片已移除",
       screenshotAreaMissing: "未找到 draw.io 画布区域，请先点击画布再重试",
       settingsTitle: "模型与参数设置",
       activeProfile: "当前 API 配置",
@@ -163,10 +167,14 @@
       injectedOutput: "XML injected",
       currentXmlOk: "Current XML loaded",
       uploadedOk: "Reference image uploaded",
+      uploadedCountOk: "Uploaded {count} reference images",
       capturing: "Capturing screenshot...",
       annotateHint: "Annotate then click done",
       screenshotUpdated: "Annotated screenshot updated",
+      pastedImageOk: "Image pasted",
       screenshotCleared: "Image context cleared",
+      removeImage: "Remove image",
+      imageRemoved: "Image removed",
       screenshotAreaMissing: "draw.io canvas region not found, click canvas and retry",
       settingsTitle: "Model and Parameters",
       activeProfile: "Active API profile",
@@ -249,8 +257,7 @@
     versionCursor: -1,
     isGenerating: false,
     runtimeListenerBound: false,
-    uploadedImageDataUrl: "",
-    screenshotDataUrl: "",
+    imageContextItems: [],
     screenshotEditor: {
       annotations: [],
       dragTextId: null,
@@ -289,6 +296,80 @@
 
   function getInput(id) {
     return document.getElementById(id);
+  }
+
+  function createImageContextItem(dataUrl, kind) {
+    return {
+      id: `img-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      kind: String(kind || "upload"),
+      dataUrl: String(dataUrl || "")
+    };
+  }
+
+  function renderImageContext() {
+    const container = getInput("drawio-ai-preview-row");
+    if (!container) return;
+
+    if (!state.imageContextItems.length) {
+      container.innerHTML = "";
+      container.style.display = "none";
+      return;
+    }
+
+    container.innerHTML = state.imageContextItems
+      .map((item, index) => `
+        <div class="drawio-ai-preview-card">
+          <img class="drawio-ai-preview" src="${escapeHtml(item.dataUrl)}" alt="context image ${index + 1}" />
+          <button
+            class="drawio-ai-preview-remove"
+            type="button"
+            data-image-id="${escapeHtml(item.id)}"
+            title="${escapeHtml(t("removeImage"))}"
+            aria-label="${escapeHtml(t("removeImage"))}"
+          >×</button>
+        </div>
+      `)
+      .join("");
+    container.style.display = "flex";
+  }
+
+  function addImageContextItems(items) {
+    const nextItems = Array.isArray(items) ? items : [items];
+    const validItems = nextItems
+      .filter((item) => item && typeof item === "object")
+      .map((item) => createImageContextItem(item.dataUrl, item.kind))
+      .filter((item) => !!item.dataUrl);
+
+    if (!validItems.length) {
+      return;
+    }
+
+    state.imageContextItems.push(...validItems);
+    renderImageContext();
+  }
+
+  function removeImageContextItem(imageId) {
+    const nextItems = state.imageContextItems.filter((item) => item.id !== imageId);
+    if (nextItems.length === state.imageContextItems.length) {
+      return;
+    }
+
+    state.imageContextItems = nextItems;
+    const uploadInput = getInput("drawio-ai-upload");
+    if (uploadInput) {
+      uploadInput.value = "";
+    }
+    renderImageContext();
+    setStatus(state.imageContextItems.length ? t("imageRemoved") : t("screenshotCleared"), false);
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
   }
 
   function getActiveProfile() {
@@ -440,26 +521,14 @@
   }
 
   function clearImageContext() {
-    state.uploadedImageDataUrl = "";
-    state.screenshotDataUrl = "";
-
-    const uploadPreview = getInput("drawio-ai-upload-preview");
-    const shotPreview = getInput("drawio-ai-shot-preview");
+    state.imageContextItems = [];
     const uploadInput = getInput("drawio-ai-upload");
-
-    if (uploadPreview) {
-      uploadPreview.src = "";
-      uploadPreview.style.display = "none";
-    }
-
-    if (shotPreview) {
-      shotPreview.src = "";
-      shotPreview.style.display = "none";
-    }
 
     if (uploadInput) {
       uploadInput.value = "";
     }
+
+    renderImageContext();
   }
 
   function renderApiTestResult(kind, text) {
@@ -840,8 +909,10 @@
     return resp.result;
   }
 
-  function pickImageDataUrl() {
-    return state.screenshotDataUrl || state.uploadedImageDataUrl || "";
+  function pickImageDataUrls() {
+    return state.imageContextItems
+      .map((item) => String(item?.dataUrl || "").trim())
+      .filter(Boolean);
   }
 
   function getHistoryForModel() {
@@ -909,14 +980,14 @@
       const currentXml = await getCurrentXml();
 
       setStatus(t("generating"), false);
-      const imageDataUrl = pickImageDataUrl();
+      const imageDataUrls = pickImageDataUrls();
       const generateResp = await sendMessage({
         type: "GENERATE_XML",
         payload: {
           ...cfg,
           userPrompt: prompt,
           currentXml,
-          imageDataUrl,
+          imageDataUrls,
           history: historyForModel
         }
       });
@@ -942,7 +1013,7 @@
         usage
       });
 
-      if (imageDataUrl) {
+      if (imageDataUrls.length) {
         clearImageContext();
       }
 
@@ -983,15 +1054,12 @@
       <div class="drawio-ai-context-strip">
         <label class="drawio-ai-upload-chip">
           ${escapeHtml(t("uploadImage"))}
-          <input id="drawio-ai-upload" type="file" accept="image/*" hidden />
+          <input id="drawio-ai-upload" type="file" accept="image/*" multiple hidden />
         </label>
         <button class="drawio-ai-upload-chip" id="drawio-ai-capture" type="button">${escapeHtml(t("captureAnnotate"))}</button>
       </div>
 
-      <div class="drawio-ai-preview-row">
-        <img id="drawio-ai-upload-preview" class="drawio-ai-preview" style="display:none" />
-        <img id="drawio-ai-shot-preview" class="drawio-ai-preview" style="display:none" />
-      </div>
+      <div id="drawio-ai-preview-row" class="drawio-ai-preview-row" style="display:none"></div>
 
       <div class="drawio-ai-composer">
         <textarea id="drawio-ai-prompt-input" class="drawio-ai-prompt" placeholder="${escapeHtml(t("promptPlaceholder"))}"></textarea>
@@ -1252,10 +1320,10 @@
     });
 
     modal.querySelector("#drawio-ai-editor-done").addEventListener("click", () => {
-      state.screenshotDataUrl = canvas.toDataURL("image/png");
-      const preview = getInput("drawio-ai-shot-preview");
-      preview.src = state.screenshotDataUrl;
-      preview.style.display = "block";
+      addImageContextItems({
+        kind: "screenshot",
+        dataUrl: canvas.toDataURL("image/png")
+      });
       modal.classList.remove("open");
       setStatus(t("screenshotUpdated"), false);
     });
@@ -1299,6 +1367,30 @@
       height,
       dpr: window.devicePixelRatio || 1
     };
+  }
+
+  function extractImageFromClipboardEvent(event) {
+    const clipboardData = event && event.clipboardData;
+    if (!clipboardData || !clipboardData.items) {
+      return null;
+    }
+
+    for (const item of clipboardData.items) {
+      if (item && item.kind === "file" && String(item.type || "").startsWith("image/")) {
+        return item.getAsFile();
+      }
+    }
+
+    return null;
+  }
+
+  function applyPastedImage(file) {
+    readFileAsDataUrl(file)
+      .then((dataUrl) => {
+        addImageContextItems({ kind: "paste", dataUrl });
+        setStatus(t("pastedImageOk"), false);
+      })
+      .catch((e) => setStatus(e.message, true));
   }
 
   function remountUi() {
@@ -1551,18 +1643,33 @@
         .catch((e) => setStatus(e.message, true));
     });
 
-    getInput("drawio-ai-upload").addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
+    getInput("drawio-ai-preview-row").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-image-id]");
+      if (!btn) return;
+      removeImageContextItem(btn.getAttribute("data-image-id") || "");
+    });
+
+    getInput("drawio-ai-upload").addEventListener("change", async (e) => {
+      const files = Array.from(e.target.files || []).filter((file) => String(file.type || "").startsWith("image/"));
+      if (!files.length) return;
+
+      try {
+        const dataUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
+        addImageContextItems(dataUrls.map((dataUrl) => ({ kind: "upload", dataUrl })));
+        setStatus(files.length > 1 ? t("uploadedCountOk", { count: files.length }) : t("uploadedOk"), false);
+      } catch (error) {
+        setStatus(error.message || String(error), true);
+      } finally {
+        e.target.value = "";
+      }
+    });
+
+    getInput("drawio-ai-prompt-input").addEventListener("paste", (e) => {
+      const file = extractImageFromClipboardEvent(e);
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        state.uploadedImageDataUrl = String(reader.result || "");
-        const preview = getInput("drawio-ai-upload-preview");
-        preview.src = state.uploadedImageDataUrl;
-        preview.style.display = "block";
-        setStatus(t("uploadedOk"), false);
-      };
-      reader.readAsDataURL(file);
+
+      e.preventDefault();
+      applyPastedImage(file);
     });
 
     getInput("drawio-ai-capture").addEventListener("click", async () => {

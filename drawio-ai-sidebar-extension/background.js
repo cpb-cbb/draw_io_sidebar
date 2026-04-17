@@ -6,6 +6,20 @@ const FULL_XML_SYSTEM_PROMPT = [
   "Output must start with <mxGraphModel and be parseable XML."
 ].join(" ");
 
+const INLINE_IMAGE_PLACEHOLDER = "[IMAGE_DATA]";
+const INLINE_IMAGE_MIN_DATA_URL_LENGTH = 200;
+
+function sanitizeInlineImageDataUrls(input) {
+  const text = String(input || "");
+  if (!text) {
+    return text;
+  }
+
+  return text.replace(/data:image\/[a-zA-Z0-9.+-]+(?:;base64)?,[^;"'<\s]+/g, (match) => {
+    return match.length >= INLINE_IMAGE_MIN_DATA_URL_LENGTH ? INLINE_IMAGE_PLACEHOLDER : match;
+  });
+}
+
 function jsonResponse(ok, data) {
   return { ok, ...data };
 }
@@ -21,7 +35,7 @@ function buildHistoryMessages(historyList) {
 
       if (item.role === "assistant") {
         const content = item.xml
-          ? `Generated draw.io XML:\n${item.xml}`
+          ? `Generated draw.io XML:\n${sanitizeInlineImageDataUrls(item.xml)}`
           : item.text || "";
         return { role: "assistant", content };
       }
@@ -31,18 +45,22 @@ function buildHistoryMessages(historyList) {
     .filter(Boolean);
 }
 
-function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageDataUrl, history, temperature, maxTokens }) {
+function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageDataUrls, history, temperature, maxTokens }) {
+  const sanitizedCurrentXml = sanitizeInlineImageDataUrls(currentXml);
+  const normalizedImageDataUrls = Array.isArray(imageDataUrls)
+    ? imageDataUrls.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
   const textParts = [];
   textParts.push("User requirement:");
   textParts.push(userPrompt || "");
-  if (currentXml) {
+  if (sanitizedCurrentXml) {
     textParts.push("Current diagram XML:");
-    textParts.push(currentXml);
+    textParts.push(sanitizedCurrentXml);
   }
 
   const historyMessages = buildHistoryMessages(history);
 
-  if (imageDataUrl) {
+  if (normalizedImageDataUrls.length) {
     return {
       model,
       messages: [
@@ -52,7 +70,7 @@ function buildOpenAICompatiblePayload({ model, userPrompt, currentXml, imageData
           role: "user",
           content: [
             { type: "text", text: textParts.join("\n\n") },
-            { type: "image_url", image_url: { url: imageDataUrl } }
+            ...normalizedImageDataUrls.map((url) => ({ type: "image_url", image_url: { url } }))
           ]
         }
       ],
@@ -192,7 +210,7 @@ async function requestFullXml(payload, endpoint) {
       model: payload.model || "gpt-4o-mini",
       userPrompt: payload.userPrompt,
       currentXml: payload.currentXml,
-      imageDataUrl: payload.imageDataUrl,
+      imageDataUrls: Array.isArray(payload.imageDataUrls) ? payload.imageDataUrls : (payload.imageDataUrl ? [payload.imageDataUrl] : []),
       history: payload.history,
       temperature: payload.temperature,
       maxTokens: payload.maxTokens
