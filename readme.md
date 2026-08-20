@@ -48,7 +48,33 @@
 - `drawio-ai-sidebar-extension/`：主扩展源码
 - `demo-extension/`：最小可运行演示扩展
 - `docs/`：补充文档与说明
-- `image/`：项目截图与演示图片
+- `image/promo/`：项目截图与演示图片
+- `image/archive/`：历史存档截图（仅供参考）
+
+### 许可证
+
+本项目基于 [MIT License](./LICENSE) 开源，欢迎自由使用、修改与分发，请保留版权声明。
+
+### 发布 / Release
+
+发布前先在 `drawio-ai-sidebar-extension/manifest.json` 中更新 `version`，并确保 git tag 与版本号一致（如 `v0.2.0`）。
+
+本地打包：
+
+```bash
+bash scripts/package.sh
+```
+
+输出 `dist/drawio-ai-sidebar-v<版本>.zip`，其中 `manifest.json` 位于 zip 根目录，可直接上传 Chrome Web Store。
+
+自动发布：推送 `v*` 标签后，GitHub Actions 会自动构建 zip 并创建带附件的 GitHub Release：
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+上传商店：从 Release 下载 zip，登录 [Chrome Web Store 开发者后台](https://chrome.google.com/webstore/devconsole) 手动上传。
 
 ### 开发说明
 
@@ -112,7 +138,33 @@ This project simplifies that into "describe -> generate XML -> inject", which he
 - `drawio-ai-sidebar-extension/`: main extension source
 - `demo-extension/`: minimal runnable demo
 - `docs/`: supplemental documentation
-- `image/`: screenshots and demo images
+- `image/promo/`: screenshots and demo images
+- `image/archive/`: archived legacy screenshots (for reference)
+
+### License
+
+This project is open sourced under the [MIT License](./LICENSE). You are free to use, modify, and distribute it, as long as you keep the copyright notice.
+
+### Release
+
+Before releasing, bump the `version` field in `drawio-ai-sidebar-extension/manifest.json` and keep the git tag in sync (e.g. `v0.2.0`).
+
+Build locally:
+
+```bash
+bash scripts/package.sh
+```
+
+This outputs `dist/drawio-ai-sidebar-v<version>.zip` with `manifest.json` at the zip root, ready to upload to the Chrome Web Store.
+
+Automatic release: pushing a `v*` tag triggers GitHub Actions to build the zip and create a GitHub Release with the artifact attached:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Publish to the store: download the zip from the Release and upload it in the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 
 ### Development Notes
 

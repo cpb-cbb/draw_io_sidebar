@@ -15,7 +15,7 @@
 
 ## 2. 与当前扩展的关系
 
-当前扩展在 [background.js](/Users/caopengbo/Documents/code/draw_io_sidebar/drawio-ai-sidebar-extension/background.js) 里有两个硬约束：
+当前扩展在 [background.js](../drawio-ai-sidebar-extension/background.js) 里有两个硬约束：
 
 - 响应必须以 `<mxGraphModel` 开头，并且包含 `</mxGraphModel>`
 - 返回内容必须是可解析 XML
@@ -375,4 +375,4 @@ You are a draw.io XML assistant. Return only valid raw mxGraphModel XML with no 
 - draw.io custom shape FAQ: https://www.drawio.com/doc/faq/shape-complex-create-edit
 - draw.io 官方关于 `mxfile` / 原始 XML 的说明: https://drawio-app.com/blog/extracting-the-xml-from-mxfiles/
 - draw.io libraries format: https://github.com/jgraph/drawio-libs
-- 当前扩展的 XML 约束实现: [background.js](/Users/caopengbo/Documents/code/draw_io_sidebar/drawio-ai-sidebar-extension/background.js)
+- 当前扩展的 XML 约束实现: [background.js](../drawio-ai-sidebar-extension/background.js)

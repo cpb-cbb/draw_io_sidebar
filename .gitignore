@@ -1,1 +1,15 @@
+# macOS
 .DS_Store
+
+# Archives
+*.zip
+
+# Build output
+dist/
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
